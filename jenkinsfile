@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+    environment {
+        S3_BUCKET = 'nodejsts-build-artifacts' // S3 bucket for storing artifacts
+        EB_APP_NAME = 'DingDingHouse' // Elastic Beanstalk application name
+        EB_ENV_NAME = 'demo-nodejsTS' // Elastic Beanstalk environment name
+        AWS_REGION = 'ap-south-1' // AWS Region
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git url: 'https://github.com/BackendsByMTT/nodejsTS', branch: 'main'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    sh 'npm install'
+                }
+            }
+        }
+
+        stage('Compile TypeScript') {
+            steps {
+                script {
+                    // Compile TypeScript files
+                    sh 'npx tsc'
+                }
+            }
+        }
+
+        stage('Package Artifacts') {
+            steps {
+                script {
+                    // Package compiled files and other necessary files into a zip archive
+                    sh 'zip -r build.zip dist package.json'
+                }
+            }
+        }
+
+        stage('Upload to S3') {
+            steps {
+                script {
+                    // Upload the build artifacts to S3
+                    sh "aws s3 cp build.zip s3://${S3_BUCKET}/build.zip --region ${AWS_REGION}"
+                }
+            }
+        }
+
+        stage('Deploy to Elastic Beanstalk') {
+            steps {
+                script {
+                    // Deploy the application to Elastic Beanstalk using the uploaded S3 artifact
+                    sh "aws elasticbeanstalk create-application-version --application-name ${EB_APP_NAME} --version-label ${BUILD_ID} --source-bundle S3Bucket=${S3_BUCKET},S3Key=build.zip --region ${AWS_REGION}"
+                    sh "aws elasticbeanstalk update-environment --environment-name ${EB_ENV_NAME} --version-label ${BUILD_ID} --region ${AWS_REGION}"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Build and deployment successful!'
+        }
+        failure {
+            echo 'Build or deployment failed.'
+        }
+    }
+}
